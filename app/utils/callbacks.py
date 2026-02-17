@@ -23,6 +23,10 @@ class TimeSelectCb(CallbackData, prefix="time"):
     ts: int
 
 
+class AdminTimeSelectCb(CallbackData, prefix="admintime"):
+    ts: int
+
+
 class ConfirmCb(CallbackData, prefix="confirm"):
     action: str
 

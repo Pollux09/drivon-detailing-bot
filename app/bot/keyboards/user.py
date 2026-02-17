@@ -11,6 +11,9 @@ from app.utils.callbacks import CarTypeSelectCb, ConfirmCb, DateSelectCb, MenuAc
 from app.utils.datetime_utils import to_iso_day
 
 
+RU_WEEKDAYS_SHORT = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+
+
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📅 Записаться", callback_data=MenuActionCb(action="book").pack()))
@@ -51,7 +54,8 @@ def car_types_keyboard(car_types: Sequence[CarType]) -> InlineKeyboardMarkup:
 def dates_keyboard(days: Sequence[date]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for day in days:
-        builder.button(text=day.strftime("%d.%m (%a)"), callback_data=DateSelectCb(day=to_iso_day(day)).pack())
+        weekday = RU_WEEKDAYS_SHORT[day.weekday()]
+        builder.button(text=f"{day:%d.%m} ({weekday})", callback_data=DateSelectCb(day=to_iso_day(day)).pack())
     builder.adjust(3)
     builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=MenuActionCb(action="back_car_types").pack()))
     return builder.as_markup()

@@ -37,6 +37,15 @@ async def _show_services(query: CallbackQuery, state: FSMContext, booking_servic
     await edit_or_answer(query, "Выберите услугу", services_keyboard(services))
 
 
+async def _stale_action_reset(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await edit_or_answer(
+        query,
+        "Кнопка из старого шага. Начните запись заново.",
+        main_menu_keyboard(),
+    )
+
+
 async def _show_car_types(query: CallbackQuery, state: FSMContext, booking_service, session: AsyncSession) -> None:
     car_types = await booking_service.get_active_car_types(session)
     if not car_types:
@@ -95,10 +104,27 @@ async def _show_available_times(
         await edit_or_answer(query, "Услуга не найдена.", main_menu_keyboard())
         return
 
-    day = from_iso_day(selected_day)
+    try:
+        day = from_iso_day(selected_day)
+    except ValueError:
+        await _stale_action_reset(query, state)
+        return
+
     slots = await schedule_service.get_available_slots(session, day, service.duration_minutes)
     if not slots:
-        await edit_or_answer(query, "На эту дату свободных слотов нет. Выберите другую.")
+        days = await schedule_service.get_available_days(
+            session,
+            datetime.now(settings.timezone).date(),
+            service.duration_minutes,
+            horizon_days=14,
+        )
+        if not days:
+            await state.clear()
+            await edit_or_answer(query, "Свободных дат сейчас нет. Попробуйте позже.", main_menu_keyboard())
+            return
+
+        await state.set_state(BookingStates.choosing_date)
+        await edit_or_answer(query, "На выбранную дату слотов нет. Выберите другую дату.", dates_keyboard(days))
         return
 
     await state.set_state(BookingStates.choosing_time)
@@ -152,7 +178,13 @@ async def car_type_selected(
         return
 
     data = await state.get_data()
-    service = await booking_service.get_service(session, data["service_id"])
+    service_id = data.get("service_id")
+    if not service_id:
+        await _stale_action_reset(query, state)
+        await query.answer("Сценарий записи сброшен", show_alert=True)
+        return
+
+    service = await booking_service.get_service(session, service_id)
     if service is None:
         await query.answer("Услуга недоступна", show_alert=True)
         return
@@ -207,8 +239,15 @@ async def time_selected(
     settings: Settings,
 ) -> None:
     data = await state.get_data()
-    service = await booking_service.get_service(session, data["service_id"])
-    car_type = await booking_service.get_car_type(session, data["car_type_id"])
+    service_id = data.get("service_id")
+    car_type_id = data.get("car_type_id")
+    if not service_id or not car_type_id:
+        await _stale_action_reset(query, state)
+        await query.answer("Сценарий записи сброшен", show_alert=True)
+        return
+
+    service = await booking_service.get_service(session, service_id)
+    car_type = await booking_service.get_car_type(session, car_type_id)
     if service is None or car_type is None:
         await query.answer("Ошибка данных", show_alert=True)
         return
@@ -259,9 +298,17 @@ async def confirm_booking(
         return
 
     data = await state.get_data()
-    service = await booking_service.get_service(session, data["service_id"])
-    car_type = await booking_service.get_car_type(session, data["car_type_id"])
-    booking_start = datetime.fromtimestamp(data["booking_ts"], tz=settings.timezone)
+    service_id = data.get("service_id")
+    car_type_id = data.get("car_type_id")
+    booking_ts = data.get("booking_ts")
+    if not service_id or not car_type_id or booking_ts is None:
+        await _stale_action_reset(query, state)
+        await query.answer("Сценарий записи сброшен", show_alert=True)
+        return
+
+    service = await booking_service.get_service(session, service_id)
+    car_type = await booking_service.get_car_type(session, car_type_id)
+    booking_start = datetime.fromtimestamp(booking_ts, tz=settings.timezone)
     if service is None or car_type is None:
         await query.answer("Услуга/тип авто недоступны", show_alert=True)
         return
@@ -317,3 +364,13 @@ async def confirm_booking(
             logger.exception("Failed to notify admin=%s", admin_id)
 
     await query.answer("Запись создана")
+
+
+@router.callback_query(
+    F.data.regexp(
+        r"^(svc:|car:|date:|time:|confirm:|menu:back_services|menu:back_car_types|menu:back_dates|menu:back_times)"
+    )
+)
+async def stale_booking_callbacks(query: CallbackQuery, state: FSMContext) -> None:
+    await _stale_action_reset(query, state)
+    await query.answer("Это старая кнопка. Начните запись заново.", show_alert=True)

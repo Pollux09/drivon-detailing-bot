@@ -31,7 +31,14 @@ from app.bot.states import (
 )
 from app.config import Settings
 from app.db.models import BookingStatus
-from app.utils.callbacks import AdminActionCb, AdminBlockCb, AdminBookingCb, AdminCarCb, AdminServiceCb, TimeSelectCb
+from app.utils.callbacks import (
+    AdminActionCb,
+    AdminBlockCb,
+    AdminBookingCb,
+    AdminCarCb,
+    AdminServiceCb,
+    AdminTimeSelectCb,
+)
 
 
 router = Router(name="admin")
@@ -42,7 +49,7 @@ router.callback_query.filter(IsAdminFilter())
 def _time_choice_keyboard(slots: list[datetime]):
     builder = InlineKeyboardBuilder()
     for slot in slots:
-        builder.button(text=slot.strftime("%H:%M"), callback_data=TimeSelectCb(ts=int(slot.timestamp())).pack())
+        builder.button(text=slot.strftime("%H:%M"), callback_data=AdminTimeSelectCb(ts=int(slot.timestamp())).pack())
     builder.adjust(4)
     builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data=AdminActionCb(action="menu").pack()))
     return builder.as_markup()
@@ -636,10 +643,10 @@ async def move_booking_date(
     await message.answer("Выберите новое время", reply_markup=_time_choice_keyboard(slots))
 
 
-@router.callback_query(TimeSelectCb.filter(), AdminMoveBookingStates.waiting_time)
+@router.callback_query(AdminTimeSelectCb.filter(), AdminMoveBookingStates.waiting_time)
 async def move_booking_time(
     query: CallbackQuery,
-    callback_data: TimeSelectCb,
+    callback_data: AdminTimeSelectCb,
     state: FSMContext,
     booking_service,
     session: AsyncSession,
