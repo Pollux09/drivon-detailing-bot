@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16
+    container_name: drivon_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: drivon_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  bot:
+    build: .
+    container_name: drivon_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  pg_data:
