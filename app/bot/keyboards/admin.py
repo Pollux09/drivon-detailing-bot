@@ -30,7 +30,7 @@ def services_manage_keyboard(services: Sequence[Service], action: str) -> Inline
     for service in services:
         builder.row(
             InlineKeyboardButton(
-                text=f"{service.name} ({'активна' if service.is_active else 'off'})",
+                text=f"{service.name} ({'активна' if service.is_active else 'неактивна'})",
                 callback_data=AdminServiceCb(service_id=service.id, action=action).pack(),
             )
         )
@@ -71,7 +71,7 @@ def cars_manage_keyboard(car_types: Sequence[CarType], action: str) -> InlineKey
     for car in car_types:
         builder.row(
             InlineKeyboardButton(
-                text=f"{car.name} x{car.price_multiplier} ({'активен' if car.is_active else 'off'})",
+                text=f"{car.name} x{car.price_multiplier} ({'активен' if car.is_active else 'неактивен'})",
                 callback_data=AdminCarCb(car_type_id=car.id, action=action).pack(),
             )
         )

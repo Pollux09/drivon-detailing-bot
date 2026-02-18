@@ -45,6 +45,13 @@ router = Router(name="admin")
 router.message.filter(IsAdminFilter())
 router.callback_query.filter(IsAdminFilter())
 
+BOOKING_STATUS_LABELS = {
+    BookingStatus.CONFIRMED: "подтверждена",
+    BookingStatus.CANCELLED: "отменена",
+    BookingStatus.COMPLETED: "завершена",
+    BookingStatus.NO_SHOW: "неявка",
+}
+
 
 def _time_choice_keyboard(slots: list[datetime]):
     builder = InlineKeyboardBuilder()
@@ -64,7 +71,8 @@ async def all_bookings(query: CallbackQuery, booking_service, session: AsyncSess
         lines = ["📋 Все записи:"]
         for booking in bookings[:30]:
             start = booking.booking_start.astimezone(settings.timezone)
-            lines.append(f"#{booking.id} {start:%d.%m %H:%M} [{booking.status.value}]")
+            status_label = BOOKING_STATUS_LABELS.get(booking.status, booking.status.value)
+            lines.append(f"#{booking.id} {start:%d.%m %H:%M} [{status_label}]")
         text = "\n".join(lines)
     await edit_or_answer(query, text, admin_menu_keyboard())
     await query.answer()
@@ -79,7 +87,8 @@ async def today_bookings(query: CallbackQuery, booking_service, session: AsyncSe
         lines = ["📅 Записи на сегодня:"]
         for booking in bookings:
             start = booking.booking_start.astimezone(settings.timezone)
-            lines.append(f"#{booking.id} {start:%H:%M} [{booking.status.value}]")
+            status_label = BOOKING_STATUS_LABELS.get(booking.status, booking.status.value)
+            lines.append(f"#{booking.id} {start:%H:%M} [{status_label}]")
         text = "\n".join(lines)
     await edit_or_answer(query, text, admin_menu_keyboard())
     await query.answer()
@@ -727,7 +736,7 @@ async def stats_action(query: CallbackQuery, booking_service, session: AsyncSess
         f"Подтверждено: {stats['confirmed']}\n"
         f"Отменено: {stats['cancelled']}\n"
         f"Завершено: {stats['completed']}\n"
-        f"Выручка (completed): {stats['revenue']} ₽"
+        f"Выручка (завершенные записи): {stats['revenue']} ₽"
     )
     await edit_or_answer(query, text, admin_menu_keyboard())
     await query.answer()
