@@ -23,5 +23,21 @@ services:
     volumes:
       - ./logs:/app/logs
 
+  site:
+    build:
+      context: ../drivon-detailing-site
+    container_name: drivon_site
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/drivon_bot
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+
 volumes:
   pg_data:

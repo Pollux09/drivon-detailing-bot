@@ -25,6 +25,9 @@ Telegram-бот для записи в детейлинг-студию (`aiogram
 
 ## Быстрый запуск (Docker)
 
+Рядом с папкой `drivon-detailing-bot` должна быть папка сайта `drivon-detailing-site`
+(compose использует `../drivon-detailing-site` для сборки контейнера `site`).
+
 1. Создайте `.env`:
 
 ```bash
@@ -38,6 +41,13 @@ cp .env.example .env
 ```bash
 docker compose up -d --build
 ```
+
+После этого поднимутся:
+- `db` (PostgreSQL)
+- `bot` (Telegram-бот)
+- `site` (сайт на `http://localhost:8000`)
+
+Сайт читает услуги из той же БД через `DATABASE_URL` и показывает только активные услуги.
 
 ## Локальный запуск
 
