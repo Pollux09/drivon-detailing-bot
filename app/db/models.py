@@ -91,6 +91,19 @@ class Booking(Base, TimestampMixin):
     user: Mapped["User"] = relationship(back_populates="bookings")
     service: Mapped["Service"] = relationship(back_populates="bookings")
     car_type: Mapped["CarType"] = relationship(back_populates="bookings")
+    admin_notes: Mapped[list["BookingAdminNote"]] = relationship(back_populates="booking")
+
+
+class BookingAdminNote(Base):
+    __tablename__ = "booking_admin_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), nullable=False, index=True)
+    admin_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    booking: Mapped["Booking"] = relationship(back_populates="admin_notes")
 
 
 class WorkSchedule(Base):
@@ -117,3 +130,4 @@ class BlockedSlot(Base):
 
 Index("ix_work_schedule_day_active", WorkSchedule.day_of_week, WorkSchedule.is_active)
 Index("ix_booking_status_start", Booking.status, Booking.booking_start)
+Index("ix_booking_admin_notes_booking_created", BookingAdminNote.booking_id, BookingAdminNote.created_at)

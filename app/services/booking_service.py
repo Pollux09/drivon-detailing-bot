@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Booking, BookingStatus, CarType, Service, User
+from app.db.models import Booking, BookingAdminNote, BookingStatus, CarType, Service, User
 from app.services.schedule_service import ScheduleService
 
 
@@ -146,6 +146,37 @@ class BookingService:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def list_booking_admin_notes(
+        self,
+        session: AsyncSession,
+        booking_id: int,
+        limit: int = 5,
+    ) -> list[BookingAdminNote]:
+        result = await session.execute(
+            select(BookingAdminNote)
+            .where(BookingAdminNote.booking_id == booking_id)
+            .order_by(BookingAdminNote.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def add_admin_note(
+        self,
+        session: AsyncSession,
+        booking: Booking,
+        admin_telegram_id: int,
+        text: str,
+    ) -> BookingAdminNote:
+        note = BookingAdminNote(
+            booking_id=booking.id,
+            admin_telegram_id=admin_telegram_id,
+            text=text,
+        )
+        session.add(note)
+        await session.commit()
+        await session.refresh(note)
+        return note
 
     async def cancel_booking(self, session: AsyncSession, booking: Booking, reason: str | None = None) -> Booking:
         booking.status = BookingStatus.CANCELLED

@@ -124,3 +124,78 @@ def blocked_slots_keyboard(blocks: Sequence, action: str) -> InlineKeyboardMarku
         )
     builder.row(InlineKeyboardButton(text="⬅️ Админ-меню", callback_data=AdminActionCb(action="menu").pack()))
     return builder.as_markup()
+
+
+def booking_list_keyboard(items: Sequence[tuple[int, str]], action: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for booking_id, label in items:
+        builder.row(
+            InlineKeyboardButton(
+                text=label,
+                callback_data=AdminBookingCb(booking_id=booking_id, action=action).pack(),
+            )
+        )
+    builder.row(InlineKeyboardButton(text="⬅️ Админ-меню", callback_data=AdminActionCb(action="menu").pack()))
+    return builder.as_markup()
+
+
+def booking_details_keyboard(booking_id: int, source: str, can_cancel: bool) -> InlineKeyboardMarkup:
+    source_action = "today_bookings" if source == "today" else "all_bookings"
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="📞 Контакты клиента",
+            callback_data=AdminBookingCb(booking_id=booking_id, action=f"card_contacts_{source}").pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="📝 Комментарий",
+            callback_data=AdminBookingCb(booking_id=booking_id, action=f"card_note_{source}").pack(),
+        )
+    )
+    if can_cancel:
+        builder.row(
+            InlineKeyboardButton(
+                text="❌ Отменить запись",
+                callback_data=AdminBookingCb(booking_id=booking_id, action=f"card_cancel_{source}").pack(),
+            )
+        )
+    builder.row(
+        InlineKeyboardButton(
+            text="🔄 Обновить",
+            callback_data=AdminBookingCb(booking_id=booking_id, action=f"card_{source}").pack(),
+        )
+    )
+    builder.row(InlineKeyboardButton(text="⬅️ К списку", callback_data=AdminActionCb(action=source_action).pack()))
+    builder.row(InlineKeyboardButton(text="⬅️ Админ-меню", callback_data=AdminActionCb(action="menu").pack()))
+    return builder.as_markup()
+
+
+def booking_cancel_reason_keyboard(booking_id: int, source: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="🚫 Без причины",
+            callback_data=AdminBookingCb(booking_id=booking_id, action=f"card_cancel_skip_{source}").pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="⬅️ К записи",
+            callback_data=AdminBookingCb(booking_id=booking_id, action=f"card_{source}").pack(),
+        )
+    )
+    return builder.as_markup()
+
+
+def booking_back_to_card_keyboard(booking_id: int, source: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="⬅️ К записи",
+            callback_data=AdminBookingCb(booking_id=booking_id, action=f"card_{source}").pack(),
+        )
+    )
+    return builder.as_markup()

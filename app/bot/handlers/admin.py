@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -13,6 +14,10 @@ from app.bot.filters import IsAdminFilter
 from app.bot.handlers.helpers import edit_or_answer
 from app.bot.keyboards.admin import (
     admin_menu_keyboard,
+    booking_back_to_card_keyboard,
+    booking_cancel_reason_keyboard,
+    booking_details_keyboard,
+    booking_list_keyboard,
     blocked_slots_keyboard,
     bookings_manage_keyboard,
     car_edit_fields_keyboard,
@@ -22,6 +27,8 @@ from app.bot.keyboards.admin import (
     services_manage_keyboard,
 )
 from app.bot.states import (
+    AdminBookingNoteStates,
+    AdminCancelBookingStates,
     AdminCarCreateStates,
     AdminCarEditStates,
     AdminCloseSlotStates,
@@ -62,19 +69,118 @@ def _time_choice_keyboard(slots: list[datetime]):
     return builder.as_markup()
 
 
+def _booking_source(action: str) -> str:
+    return "today" if action.endswith("_today") else "all"
+
+
+def _trim_text(text: str, max_length: int = 160) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return normalized[: max_length - 3] + "..."
+
+
+def _booking_list_items(bookings: list, settings: Settings, include_date: bool) -> list[tuple[int, str]]:
+    items: list[tuple[int, str]] = []
+    for booking in bookings:
+        start = booking.booking_start.astimezone(settings.timezone)
+        status_label = BOOKING_STATUS_LABELS.get(booking.status, booking.status.value)
+        dt = start.strftime("%d.%m %H:%M") if include_date else start.strftime("%H:%M")
+        items.append((booking.id, f"#{booking.id} {dt} [{status_label}]"))
+    return items
+
+
+def _format_booking_notes(notes: list, settings: Settings) -> str:
+    if not notes:
+        return "Комментариев пока нет."
+
+    lines: list[str] = []
+    for note in notes:
+        created = note.created_at.astimezone(settings.timezone)
+        text = escape(_trim_text(note.text))
+        lines.append(f"- {created:%d.%m %H:%M} (admin {note.admin_telegram_id}): {text}")
+    return "\n".join(lines)
+
+
+def _format_booking_card_text(booking, notes: list, settings: Settings) -> str:
+    start = booking.booking_start.astimezone(settings.timezone)
+    end = booking.booking_end.astimezone(settings.timezone)
+    status_label = BOOKING_STATUS_LABELS.get(booking.status, booking.status.value)
+    client_name = escape(booking.user.full_name or "Не указано")
+    phone = escape(booking.user.phone or "Не указан")
+    service_name = escape(booking.service.name)
+    car_name = escape(booking.car_type.name)
+    notes_text = _format_booking_notes(notes, settings)
+
+    return (
+        f"📌 <b>Запись #{booking.id}</b>\n"
+        f"Статус: {status_label}\n"
+        f"Дата: {start:%d.%m.%Y}\n"
+        f"Время: {start:%H:%M}-{end:%H:%M}\n"
+        f"Пост: {booking.post_id}\n\n"
+        f"Услуга: {service_name}\n"
+        f"Авто: {car_name}\n"
+        f"Цена: {booking.final_price} ₽\n\n"
+        f"Клиент: {client_name}\n"
+        f"Telegram ID: <code>{booking.user.telegram_id}</code>\n"
+        f"Телефон: {phone}\n\n"
+        f"🗒 <b>Комментарии админов:</b>\n{notes_text}"
+    )
+
+
+def _format_contact_text(booking) -> str:
+    client_name = escape(booking.user.full_name or "Не указано")
+    phone = escape(booking.user.phone or "Не указан")
+    return (
+        "📞 <b>Контакты клиента</b>\n"
+        f"Имя: {client_name}\n"
+        f"Telegram ID: <code>{booking.user.telegram_id}</code>\n"
+        f"Телефон: {phone}\n"
+        f"Профиль: <a href=\"tg://user?id={booking.user.telegram_id}\">открыть</a>"
+    )
+
+
+async def _show_booking_card(
+    query: CallbackQuery,
+    booking_service,
+    session: AsyncSession,
+    settings: Settings,
+    booking_id: int,
+    source: str,
+) -> bool:
+    booking = await booking_service.get_booking(session, booking_id)
+    if booking is None:
+        await query.answer("Запись не найдена", show_alert=True)
+        return False
+
+    notes = await booking_service.list_booking_admin_notes(session, booking_id=booking.id, limit=5)
+    text = _format_booking_card_text(booking, notes, settings)
+    await edit_or_answer(
+        query,
+        text,
+        booking_details_keyboard(
+            booking_id=booking.id,
+            source=source,
+            can_cancel=booking.status == BookingStatus.CONFIRMED,
+        ),
+    )
+    return True
+
+
 @router.callback_query(AdminActionCb.filter(F.action == "all_bookings"))
 async def all_bookings(query: CallbackQuery, booking_service, session: AsyncSession, settings: Settings) -> None:
     bookings = await booking_service.list_bookings(session, limit=50)
     if not bookings:
-        text = "Записей нет."
-    else:
-        lines = ["📋 Все записи:"]
-        for booking in bookings[:30]:
-            start = booking.booking_start.astimezone(settings.timezone)
-            status_label = BOOKING_STATUS_LABELS.get(booking.status, booking.status.value)
-            lines.append(f"#{booking.id} {start:%d.%m %H:%M} [{status_label}]")
-        text = "\n".join(lines)
-    await edit_or_answer(query, text, admin_menu_keyboard())
+        await edit_or_answer(query, "Записей нет.", admin_menu_keyboard())
+        await query.answer()
+        return
+
+    items = _booking_list_items(bookings[:30], settings=settings, include_date=True)
+    await edit_or_answer(
+        query,
+        "📋 Выберите запись",
+        booking_list_keyboard(items, action="card_all"),
+    )
     await query.answer()
 
 
@@ -82,16 +188,213 @@ async def all_bookings(query: CallbackQuery, booking_service, session: AsyncSess
 async def today_bookings(query: CallbackQuery, booking_service, session: AsyncSession, settings: Settings) -> None:
     bookings = await booking_service.list_today_bookings(session, settings.timezone, limit=50)
     if not bookings:
-        text = "На сегодня записей нет."
-    else:
-        lines = ["📅 Записи на сегодня:"]
-        for booking in bookings:
-            start = booking.booking_start.astimezone(settings.timezone)
-            status_label = BOOKING_STATUS_LABELS.get(booking.status, booking.status.value)
-            lines.append(f"#{booking.id} {start:%H:%M} [{status_label}]")
-        text = "\n".join(lines)
-    await edit_or_answer(query, text, admin_menu_keyboard())
+        await edit_or_answer(query, "На сегодня записей нет.", admin_menu_keyboard())
+        await query.answer()
+        return
+
+    items = _booking_list_items(bookings, settings=settings, include_date=False)
+    await edit_or_answer(
+        query,
+        "📅 Записи на сегодня. Выберите запись",
+        booking_list_keyboard(items, action="card_today"),
+    )
     await query.answer()
+
+
+@router.callback_query(AdminBookingCb.filter(F.action.startswith("card_")))
+async def booking_card_action_router(
+    query: CallbackQuery,
+    callback_data: AdminBookingCb,
+    state: FSMContext,
+    booking_service,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    action = callback_data.action
+    source = _booking_source(action)
+
+    if action in {"card_all", "card_today"}:
+        await state.clear()
+        await _show_booking_card(query, booking_service, session, settings, callback_data.booking_id, source)
+        await query.answer()
+        return
+
+    booking = await booking_service.get_booking(session, callback_data.booking_id)
+    if booking is None:
+        await query.answer("Запись не найдена", show_alert=True)
+        return
+
+    if action.startswith("card_contacts_"):
+        if query.message is not None:
+            await query.message.answer(_format_contact_text(booking))
+        await query.answer("Контакты отправлены")
+        return
+
+    if action.startswith("card_note_"):
+        await state.clear()
+        await state.set_state(AdminBookingNoteStates.waiting_text)
+        await state.update_data(booking_note_id=booking.id, booking_note_source=source)
+        await edit_or_answer(
+            query,
+            "Введите комментарий для этой записи.\nОн будет виден другим администраторам.",
+            booking_back_to_card_keyboard(booking.id, source),
+        )
+        await query.answer()
+        return
+
+    if action.startswith("card_cancel_skip_"):
+        if booking.status != BookingStatus.CONFIRMED:
+            await state.clear()
+            await query.answer("Запись уже не подтверждена", show_alert=True)
+            return
+
+        await booking_service.cancel_booking(session, booking, reason="admin_cancel")
+        await booking_service.add_admin_note(
+            session,
+            booking=booking,
+            admin_telegram_id=query.from_user.id,
+            text="Отмена записи без причины",
+        )
+
+        try:
+            await query.bot.send_message(
+                booking.user.telegram_id,
+                (
+                    "❌ Ваша запись отменена администратором\n"
+                    f"#{booking.id} {booking.booking_start.astimezone(settings.timezone):%d.%m %H:%M}"
+                ),
+            )
+        except Exception:
+            pass
+
+        await state.clear()
+        await _show_booking_card(query, booking_service, session, settings, booking.id, source)
+        await query.answer("Запись отменена")
+        return
+
+    if action.startswith("card_cancel_"):
+        if booking.status != BookingStatus.CONFIRMED:
+            await query.answer("Можно отменить только подтвержденную запись", show_alert=True)
+            return
+
+        await state.clear()
+        await state.set_state(AdminCancelBookingStates.waiting_reason)
+        await state.update_data(cancel_booking_id=booking.id, cancel_booking_source=source)
+        await edit_or_answer(
+            query,
+            "Введите причину отмены. Она уйдет клиенту и сохранится в комментариях.\n"
+            "Или нажмите «Без причины».",
+            booking_cancel_reason_keyboard(booking.id, source),
+        )
+        await query.answer()
+        return
+
+    await query.answer("Неизвестное действие", show_alert=True)
+
+
+@router.message(AdminBookingNoteStates.waiting_text)
+async def booking_note_entered(
+    message: Message,
+    state: FSMContext,
+    booking_service,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    if message.from_user is None or not message.text:
+        return
+
+    note_text = message.text.strip()
+    if not note_text:
+        await message.answer("Комментарий пустой. Введите текст.")
+        return
+
+    data = await state.get_data()
+    booking_id = data.get("booking_note_id")
+    source = data.get("booking_note_source", "all")
+    booking = await booking_service.get_booking(session, booking_id)
+    if booking is None:
+        await state.clear()
+        await message.answer("Запись не найдена", reply_markup=admin_menu_keyboard())
+        return
+
+    await booking_service.add_admin_note(
+        session,
+        booking=booking,
+        admin_telegram_id=message.from_user.id,
+        text=note_text,
+    )
+    notes = await booking_service.list_booking_admin_notes(session, booking_id=booking.id, limit=5)
+    await state.clear()
+    await message.answer(
+        _format_booking_card_text(booking, notes, settings),
+        reply_markup=booking_details_keyboard(
+            booking_id=booking.id,
+            source=source,
+            can_cancel=booking.status == BookingStatus.CONFIRMED,
+        ),
+    )
+
+
+@router.message(AdminCancelBookingStates.waiting_reason)
+async def cancel_booking_with_reason(
+    message: Message,
+    state: FSMContext,
+    booking_service,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    if message.from_user is None or not message.text:
+        return
+
+    reason = message.text.strip()
+    if not reason:
+        await message.answer("Причина пустая. Введите текст или нажмите «Без причины».")
+        return
+
+    data = await state.get_data()
+    booking_id = data.get("cancel_booking_id")
+    source = data.get("cancel_booking_source", "all")
+    booking = await booking_service.get_booking(session, booking_id)
+    if booking is None:
+        await state.clear()
+        await message.answer("Запись не найдена", reply_markup=admin_menu_keyboard())
+        return
+
+    if booking.status != BookingStatus.CONFIRMED:
+        await state.clear()
+        await message.answer("Запись уже не подтверждена", reply_markup=admin_menu_keyboard())
+        return
+
+    await booking_service.cancel_booking(session, booking, reason=reason)
+    await booking_service.add_admin_note(
+        session,
+        booking=booking,
+        admin_telegram_id=message.from_user.id,
+        text=f"Отмена записи: {reason}",
+    )
+
+    try:
+        await message.bot.send_message(
+            booking.user.telegram_id,
+            (
+                "❌ Ваша запись отменена администратором\n"
+                f"#{booking.id} {booking.booking_start.astimezone(settings.timezone):%d.%m %H:%M}\n"
+                f"Причина: {escape(reason)}"
+            ),
+        )
+    except Exception:
+        pass
+
+    notes = await booking_service.list_booking_admin_notes(session, booking_id=booking.id, limit=5)
+    await state.clear()
+    await message.answer(
+        _format_booking_card_text(booking, notes, settings),
+        reply_markup=booking_details_keyboard(
+            booking_id=booking.id,
+            source=source,
+            can_cancel=False,
+        ),
+    )
 
 
 @router.callback_query(AdminActionCb.filter(F.action == "add_service"))

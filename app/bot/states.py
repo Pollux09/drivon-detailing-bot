@@ -38,3 +38,11 @@ class AdminCloseSlotStates(StatesGroup):
 class AdminMoveBookingStates(StatesGroup):
     waiting_date = State()
     waiting_time = State()
+
+
+class AdminBookingNoteStates(StatesGroup):
+    waiting_text = State()
+
+
+class AdminCancelBookingStates(StatesGroup):
+    waiting_reason = State()
